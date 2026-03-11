@@ -1,0 +1,1289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LogiRoute AI — Simulation Control Panel</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg-primary: #0a0e1a;
+      --bg-secondary: #111827;
+      --bg-card: rgba(17, 24, 39, 0.85);
+      --bg-glass: rgba(255,255,255,0.04);
+      --border-glass: rgba(255,255,255,0.08);
+      --text-primary: #f1f5f9;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+      --accent-blue: #3b82f6;
+      --accent-cyan: #06b6d4;
+      --accent-green: #22c55e;
+      --accent-red: #ef4444;
+      --accent-orange: #f97316;
+      --accent-yellow: #eab308;
+      --accent-purple: #a855f7;
+      --accent-pink: #ec4899;
+      --glow-blue: 0 0 20px rgba(59,130,246,0.3);
+      --glow-red: 0 0 20px rgba(239,68,68,0.3);
+      --glow-green: 0 0 20px rgba(34,197,94,0.3);
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* Animated background gradient */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse at 20% 20%, rgba(59,130,246,0.08) 0%, transparent 50%),
+        radial-gradient(ellipse at 80% 80%, rgba(168,85,247,0.06) 0%, transparent 50%),
+        radial-gradient(ellipse at 50% 50%, rgba(6,182,212,0.04) 0%, transparent 50%);
+      z-index: -1;
+      animation: bgShift 20s ease-in-out infinite alternate;
+    }
+
+    @keyframes bgShift {
+      0% { opacity: 0.7; }
+      100% { opacity: 1; }
+    }
+
+    /* Header */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 28px;
+      background: rgba(17,24,39,0.9);
+      backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--border-glass);
+      position: sticky;
+      top: 0;
+      z-index: 1000;
+    }
+
+    .header-title {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .header-title .icon {
+      width: 40px;
+      height: 40px;
+      background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      box-shadow: var(--glow-blue);
+    }
+
+    .header h1 {
+      font-size: 20px;
+      font-weight: 700;
+      background: linear-gradient(135deg, #fff 0%, var(--accent-cyan) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .header h1 span {
+      font-weight: 400;
+      -webkit-text-fill-color: var(--text-secondary);
+    }
+
+    .connection-badge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      border-radius: 20px;
+      background: var(--bg-glass);
+      border: 1px solid var(--border-glass);
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      transition: all 0.3s;
+    }
+
+    .connection-badge.connected {
+      color: var(--accent-green);
+      border-color: rgba(34,197,94,0.3);
+      background: rgba(34,197,94,0.08);
+    }
+
+    .connection-badge .dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--accent-red);
+      transition: all 0.3s;
+    }
+
+    .connection-badge.connected .dot {
+      background: var(--accent-green);
+      box-shadow: 0 0 8px var(--accent-green);
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.6; transform: scale(1.3); }
+    }
+
+    /* Main Layout */
+    .main-layout {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      padding: 20px 28px;
+      max-width: 1500px;
+      margin: 0 auto;
+      min-height: calc(100vh - 73px);
+    }
+
+    @media (max-width: 1024px) {
+      .main-layout { grid-template-columns: 1fr; }
+    }
+
+    /* Glass Card */
+    .card {
+      background: var(--bg-card);
+      backdrop-filter: blur(20px);
+      border: 1px solid var(--border-glass);
+      border-radius: 16px;
+      padding: 24px;
+      transition: border-color 0.3s;
+    }
+
+    .card:hover {
+      border-color: rgba(255,255,255,0.12);
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+
+    .card-header .badge {
+      width: 32px; height: 32px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+    }
+
+    .card-header h2 {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .card-header .subtitle {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-weight: 400;
+    }
+
+    /* Section dividers */
+    .section-label {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: var(--text-muted);
+      margin: 20px 0 12px;
+    }
+
+    .section-label:first-child { margin-top: 0; }
+
+    /* Control Buttons Grid */
+    .btn-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .btn-grid.three-col {
+      grid-template-columns: 1fr 1fr 1fr;
+    }
+
+    .ctrl-btn {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 16px 12px;
+      border: 1px solid var(--border-glass);
+      border-radius: 12px;
+      background: var(--bg-glass);
+      color: var(--text-primary);
+      font-family: 'Inter', sans-serif;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.25s cubic-bezier(0.4,0,0.2,1);
+      overflow: hidden;
+    }
+
+    .ctrl-btn::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, transparent, rgba(255,255,255,0.03));
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+
+    .ctrl-btn:hover::before { opacity: 1; }
+
+    .ctrl-btn .icon { font-size: 22px; }
+
+    .ctrl-btn:hover {
+      transform: translateY(-2px);
+      border-color: rgba(255,255,255,0.15);
+    }
+
+    .ctrl-btn:active {
+      transform: translateY(0) scale(0.97);
+    }
+
+    /* Button variants */
+    .ctrl-btn.traffic {
+      border-color: rgba(239,68,68,0.3);
+      background: rgba(239,68,68,0.08);
+    }
+    .ctrl-btn.traffic:hover {
+      background: rgba(239,68,68,0.15);
+      box-shadow: var(--glow-red);
+    }
+
+    .ctrl-btn.weather {
+      border-color: rgba(59,130,246,0.3);
+      background: rgba(59,130,246,0.08);
+    }
+    .ctrl-btn.weather:hover {
+      background: rgba(59,130,246,0.15);
+      box-shadow: var(--glow-blue);
+    }
+
+    .ctrl-btn.order {
+      border-color: rgba(34,197,94,0.3);
+      background: rgba(34,197,94,0.08);
+    }
+    .ctrl-btn.order:hover {
+      background: rgba(34,197,94,0.15);
+      box-shadow: var(--glow-green);
+    }
+
+    .ctrl-btn.speed {
+      border-color: rgba(249,115,22,0.3);
+      background: rgba(249,115,22,0.08);
+    }
+    .ctrl-btn.speed:hover {
+      background: rgba(249,115,22,0.15);
+      box-shadow: 0 0 20px rgba(249,115,22,0.3);
+    }
+
+    .ctrl-btn.pause {
+      border-color: rgba(234,179,8,0.3);
+      background: rgba(234,179,8,0.08);
+    }
+    .ctrl-btn.pause:hover {
+      background: rgba(234,179,8,0.15);
+      box-shadow: 0 0 20px rgba(234,179,8,0.3);
+    }
+
+    .ctrl-btn.reset {
+      border-color: rgba(168,85,247,0.3);
+      background: rgba(168,85,247,0.08);
+    }
+    .ctrl-btn.reset:hover {
+      background: rgba(168,85,247,0.15);
+      box-shadow: 0 0 20px rgba(168,85,247,0.3);
+    }
+
+    .ctrl-btn.active {
+      animation: btnActive 0.5s ease-out;
+    }
+
+    @keyframes btnActive {
+      0% { box-shadow: inset 0 0 30px rgba(255,255,255,0.2); }
+      100% { box-shadow: none; }
+    }
+
+    /* Traffic Level Selector */
+    .level-selector {
+      display: flex;
+      gap: 6px;
+      margin-top: 10px;
+    }
+
+    .level-chip {
+      flex: 1;
+      padding: 8px 4px;
+      border: 1px solid var(--border-glass);
+      border-radius: 8px;
+      background: var(--bg-glass);
+      color: var(--text-secondary);
+      font-family: 'Inter', sans-serif;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      cursor: pointer;
+      text-align: center;
+      transition: all 0.2s;
+    }
+
+    .level-chip:hover { background: rgba(255,255,255,0.06); }
+
+    .level-chip.selected {
+      color: var(--text-primary);
+      border-color: var(--accent-red);
+      background: rgba(239,68,68,0.15);
+      box-shadow: 0 0 12px rgba(239,68,68,0.2);
+    }
+
+    .level-chip[data-level="LOW"].selected {
+      border-color: var(--accent-yellow);
+      background: rgba(234,179,8,0.15);
+      box-shadow: 0 0 12px rgba(234,179,8,0.2);
+    }
+
+    .level-chip[data-level="MEDIUM"].selected {
+      border-color: var(--accent-orange);
+      background: rgba(249,115,22,0.15);
+      box-shadow: 0 0 12px rgba(249,115,22,0.2);
+    }
+
+    .level-chip[data-level="UNEXPECTED"].selected {
+      border-color: var(--accent-purple);
+      background: rgba(168,85,247,0.15);
+      box-shadow: 0 0 12px rgba(168,85,247,0.2);
+    }
+
+    /* Driver targeting */
+    .driver-select-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .driver-select-row label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      white-space: nowrap;
+    }
+
+    .driver-select {
+      flex: 1;
+      padding: 8px 12px;
+      border: 1px solid var(--border-glass);
+      border-radius: 8px;
+      background: var(--bg-glass);
+      color: var(--text-primary);
+      font-family: 'Inter', sans-serif;
+      font-size: 12px;
+      cursor: pointer;
+      appearance: none;
+      -webkit-appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%2394a3b8' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 10px center;
+      padding-right: 30px;
+    }
+
+    .driver-select option {
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+    }
+
+    /* New Order Input */
+    .new-order-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .new-order-input {
+      flex: 1;
+      padding: 8px 12px;
+      border: 1px solid var(--border-glass);
+      border-radius: 8px;
+      background: var(--bg-glass);
+      color: var(--text-primary);
+      font-family: 'Inter', sans-serif;
+      font-size: 12px;
+    }
+
+    .new-order-input::placeholder {
+      color: var(--text-muted);
+    }
+
+    /* Speed Slider */
+    .speed-control {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-top: 10px;
+      padding: 12px 16px;
+      background: var(--bg-glass);
+      border: 1px solid var(--border-glass);
+      border-radius: 10px;
+    }
+
+    .speed-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      min-width: 50px;
+    }
+
+    .speed-slider {
+      flex: 1;
+      -webkit-appearance: none;
+      appearance: none;
+      height: 4px;
+      border-radius: 2px;
+      background: linear-gradient(to right, var(--accent-cyan), var(--accent-orange));
+      outline: none;
+    }
+
+    .speed-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 18px; height: 18px;
+      border-radius: 50%;
+      background: var(--text-primary);
+      border: 2px solid var(--accent-cyan);
+      cursor: pointer;
+      box-shadow: 0 0 10px rgba(6,182,212,0.4);
+      transition: transform 0.2s;
+    }
+
+    .speed-slider::-webkit-slider-thumb:hover {
+      transform: scale(1.2);
+    }
+
+    .speed-value {
+      font-size: 16px;
+      font-weight: 800;
+      color: var(--accent-orange);
+      min-width: 36px;
+      text-align: right;
+    }
+
+    /* Weather Zone Selector */
+    .zone-selector {
+      display: flex;
+      gap: 6px;
+      margin-top: 10px;
+    }
+
+    .zone-chip {
+      flex: 1;
+      padding: 7px 4px;
+      border: 1px solid var(--border-glass);
+      border-radius: 8px;
+      background: var(--bg-glass);
+      color: var(--text-secondary);
+      font-family: 'Inter', sans-serif;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      cursor: pointer;
+      text-align: center;
+      transition: all 0.2s;
+    }
+
+    .zone-chip:hover { background: rgba(255,255,255,0.06); }
+
+    .zone-chip.selected {
+      border-color: var(--accent-blue);
+      background: rgba(59,130,246,0.15);
+      color: var(--text-primary);
+    }
+
+    /* Event Log */
+    .event-log {
+      max-height: 200px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .event-log::-webkit-scrollbar {
+      width: 4px;
+    }
+
+    .event-log::-webkit-scrollbar-thumb {
+      background: var(--border-glass);
+      border-radius: 2px;
+    }
+
+    .event-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 8px 10px;
+      background: var(--bg-glass);
+      border: 1px solid var(--border-glass);
+      border-radius: 8px;
+      font-size: 11px;
+      line-height: 1.4;
+      animation: slideIn 0.3s ease-out;
+    }
+
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateX(-10px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+
+    .event-item .time {
+      color: var(--text-muted);
+      font-size: 10px;
+      font-weight: 500;
+      white-space: nowrap;
+      min-width: 48px;
+    }
+
+    .event-item .msg {
+      color: var(--text-secondary);
+      flex: 1;
+    }
+
+    /* Mini Map */
+    .map-container {
+      position: relative;
+      border-radius: 12px;
+      overflow: hidden;
+      height: 100%;
+      min-height: 500px;
+      border: 1px solid var(--border-glass);
+    }
+
+    #minimap {
+      width: 100%;
+      height: 100%;
+      background: var(--bg-secondary);
+    }
+
+    /* Map Legend */
+    .map-legend {
+      position: absolute;
+      bottom: 16px;
+      left: 16px;
+      background: rgba(10,14,26,0.9);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border-glass);
+      border-radius: 10px;
+      padding: 12px 14px;
+      z-index: 999;
+      font-size: 11px;
+    }
+
+    .map-legend h4 {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 4px;
+      color: var(--text-secondary);
+    }
+
+    .legend-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    /* Active drivers counter */
+    .map-overlay-stats {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      display: flex;
+      gap: 8px;
+      z-index: 999;
+    }
+
+    .map-stat {
+      padding: 6px 12px;
+      background: rgba(10,14,26,0.9);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border-glass);
+      border-radius: 8px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .map-stat .num {
+      color: var(--accent-cyan);
+    }
+
+    /* Toast */
+    .toast-container {
+      position: fixed;
+      top: 80px;
+      right: 28px;
+      z-index: 9999;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .toast {
+      padding: 12px 18px;
+      background: rgba(17,24,39,0.95);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border-glass);
+      border-radius: 10px;
+      font-size: 12px;
+      color: var(--text-primary);
+      animation: toastIn 0.3s ease-out, toastOut 0.3s 3s ease-in forwards;
+      max-width: 320px;
+    }
+
+    @keyframes toastIn {
+      from { opacity: 0; transform: translateX(40px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+
+    @keyframes toastOut {
+      from { opacity: 1; }
+      to { opacity: 0; transform: translateX(40px); }
+    }
+
+    .toast.success { border-left: 3px solid var(--accent-green); }
+    .toast.error { border-left: 3px solid var(--accent-red); }
+    .toast.info { border-left: 3px solid var(--accent-blue); }
+    .toast.warning { border-left: 3px solid var(--accent-orange); }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .main-layout { padding: 12px; gap: 12px; }
+      .header { padding: 12px 16px; }
+      .btn-grid { grid-template-columns: 1fr 1fr; }
+      .btn-grid.three-col { grid-template-columns: 1fr 1fr; }
+      .map-container { min-height: 350px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <header class="header">
+    <div class="header-title">
+      <div class="icon">🎛️</div>
+      <div>
+        <h1>LogiRoute AI <span>/ Simulation Panel</span></h1>
+      </div>
+    </div>
+    <div class="connection-badge" id="connBadge">
+      <div class="dot"></div>
+      <span id="connText">Connecting…</span>
+    </div>
+  </header>
+
+  <!-- Toast Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- Main Content -->
+  <div class="main-layout">
+
+    <!-- LEFT: Controls -->
+    <div style="display:flex;flex-direction:column;gap:20px;">
+
+      <!-- Traffic Controls -->
+      <div class="card">
+        <div class="card-header">
+          <div class="badge" style="background:rgba(239,68,68,0.15);color:var(--accent-red);">🚧</div>
+          <div>
+            <h2>Traffic Injection</h2>
+            <div class="subtitle">Create traffic events to trigger re-routing</div>
+          </div>
+        </div>
+
+        <div class="section-label">Traffic Level</div>
+        <div class="level-selector" id="levelSelector">
+          <button class="level-chip" data-level="LOW">🟡 Low</button>
+          <button class="level-chip selected" data-level="MEDIUM">🟠 Medium</button>
+          <button class="level-chip" data-level="EXTREME">🔴 Extreme</button>
+          <button class="level-chip" data-level="UNEXPECTED">🟣 Block</button>
+        </div>
+
+        <div class="driver-select-row">
+          <label>Target Driver</label>
+          <select class="driver-select" id="trafficDriverSelect">
+            <option value="">🎲 Random Driver</option>
+            <option value="001">Driver #001</option>
+            <option value="002">Driver #002</option>
+            <option value="003">Driver #003</option>
+            <option value="004">Driver #004</option>
+            <option value="005">Driver #005</option>
+            <option value="006">Driver #006</option>
+            <option value="007">Driver #007</option>
+            <option value="008">Driver #008</option>
+            <option value="009">Driver #009</option>
+            <option value="010">Driver #010</option>
+          </select>
+        </div>
+
+        <div class="btn-grid" style="margin-top:14px;">
+          <button class="ctrl-btn traffic" id="btnTrafficCongestion" onclick="injectTraffic('congestion')">
+            <span class="icon">🚗</span>
+            Congestion
+          </button>
+          <button class="ctrl-btn traffic" id="btnTrafficAccident" onclick="injectTraffic('accident')">
+            <span class="icon">💥</span>
+            Accident
+          </button>
+          <button class="ctrl-btn traffic" id="btnTrafficConstruction" onclick="injectTraffic('construction')">
+            <span class="icon">🏗️</span>
+            Construction
+          </button>
+          <button class="ctrl-btn traffic" id="btnTrafficEvent" onclick="injectTraffic('event')">
+            <span class="icon">🎪</span>
+            Event Block
+          </button>
+        </div>
+      </div>
+
+      <!-- Weather + New Order -->
+      <div class="card">
+        <div class="card-header">
+          <div class="badge" style="background:rgba(59,130,246,0.15);color:var(--accent-blue);">🌧️</div>
+          <div>
+            <h2>Weather & Orders</h2>
+            <div class="subtitle">Inject weather zones and surprise deliveries</div>
+          </div>
+        </div>
+
+        <div class="section-label">Rain Zone</div>
+        <div class="zone-selector" id="zoneSelector">
+          <button class="zone-chip selected" data-zone="all">All</button>
+          <button class="zone-chip" data-zone="north">North</button>
+          <button class="zone-chip" data-zone="south">South</button>
+          <button class="zone-chip" data-zone="east">East</button>
+          <button class="zone-chip" data-zone="west">West</button>
+        </div>
+
+        <div class="btn-grid" style="margin-top:12px;">
+          <button class="ctrl-btn weather" onclick="injectWeather(1.5)">
+            <span class="icon">🌦️</span>
+            Light Rain (1.5×)
+          </button>
+          <button class="ctrl-btn weather" onclick="injectWeather(2.0)">
+            <span class="icon">🌧️</span>
+            Heavy Rain (2×)
+          </button>
+          <button class="ctrl-btn weather" onclick="injectWeather(3.0)">
+            <span class="icon">⛈️</span>
+            Storm (3×)
+          </button>
+          <button class="ctrl-btn weather" onclick="clearWeather()">
+            <span class="icon">☀️</span>
+            Clear Weather
+          </button>
+        </div>
+
+        <div class="section-label" style="margin-top:18px;">Add Surprise Delivery</div>
+        <div class="new-order-row">
+          <select class="driver-select" id="orderDriverSelect" style="max-width:130px;">
+            <option value="001">Driver #001</option>
+            <option value="002">Driver #002</option>
+            <option value="003">Driver #003</option>
+            <option value="004">Driver #004</option>
+            <option value="005">Driver #005</option>
+          </select>
+          <input type="text" class="new-order-input" id="orderAddress" placeholder="Address (e.g. Woraiyur Market)" />
+          <button class="ctrl-btn order" style="padding:8px 16px;flex-direction:row;gap:6px;" onclick="addNewOrder()">
+            <span class="icon" style="font-size:16px;">📦</span> Add
+          </button>
+        </div>
+      </div>
+
+      <!-- Playback Controls -->
+      <div class="card">
+        <div class="card-header">
+          <div class="badge" style="background:rgba(249,115,22,0.15);color:var(--accent-orange);">⚡</div>
+          <div>
+            <h2>Playback Controls</h2>
+            <div class="subtitle">Speed, pause, and reset the simulation</div>
+          </div>
+        </div>
+
+        <div class="speed-control">
+          <span class="speed-label">Speed</span>
+          <input type="range" class="speed-slider" id="speedSlider" min="1" max="10" value="1" step="1" />
+          <span class="speed-value" id="speedValue">1×</span>
+        </div>
+
+        <div class="btn-grid three-col" style="margin-top:14px;">
+          <button class="ctrl-btn speed" onclick="setSpeed(2)">
+            <span class="icon">⏩</span>
+            2× Speed
+          </button>
+          <button class="ctrl-btn speed" onclick="setSpeed(5)">
+            <span class="icon">⏭️</span>
+            5× Speed
+          </button>
+          <button class="ctrl-btn speed" onclick="setSpeed(10)">
+            <span class="icon">🚀</span>
+            10× Speed
+          </button>
+        </div>
+
+        <div class="btn-grid" style="margin-top:10px;">
+          <button class="ctrl-btn pause" id="btnPause" onclick="togglePause()">
+            <span class="icon" id="pauseIcon">⏸️</span>
+            <span id="pauseText">Pause</span>
+          </button>
+          <button class="ctrl-btn reset" onclick="resetSimulation()">
+            <span class="icon">🔄</span>
+            Reset All
+          </button>
+        </div>
+      </div>
+
+      <!-- Event Log -->
+      <div class="card">
+        <div class="card-header">
+          <div class="badge" style="background:rgba(6,182,212,0.15);color:var(--accent-cyan);">📋</div>
+          <div>
+            <h2>Event Log</h2>
+            <div class="subtitle">Recent simulation events</div>
+          </div>
+        </div>
+        <div class="event-log" id="eventLog">
+          <div class="event-item">
+            <span class="time">--:--</span>
+            <span class="msg">Waiting for simulation events…</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Mini-map -->
+    <div class="card" style="padding:0;overflow:hidden;">
+      <div class="map-container">
+        <div id="minimap"></div>
+        <div class="map-overlay-stats">
+          <div class="map-stat">Active: <span class="num" id="activeCount">0</span></div>
+          <div class="map-stat">Traffic Events: <span class="num" id="trafficCount">0</span></div>
+        </div>
+        <div class="map-legend">
+          <h4>Legend</h4>
+          <div class="legend-item"><div class="legend-dot" style="background:#22c55e;box-shadow:0 0 6px #22c55e;"></div> On Route</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#3b82f6;"></div> Idle</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#eab308;"></div> Delayed</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#a855f7;"></div> Completed</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#ef4444;width:20px;border-radius:3px;height:4px;"></div> Traffic Jam</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    // ─── CONFIG ──────────────────────────────────────────────
+    const BACKEND = 'http://localhost:8080';
+    const TRICHY  = [10.7905, 78.7047];
+
+    // ─── STATE ───────────────────────────────────────────────
+    let selectedLevel  = 'MEDIUM';
+    let selectedZone   = 'all';
+    let isPaused       = false;
+    let currentSpeed   = 1;
+    let driverMarkers  = {};
+    let routeLines     = {};
+    let trafficLines   = {};
+    let driverData     = {};
+
+    const STATUS_COLORS = {
+      on_route:  '#22c55e',
+      idle:      '#3b82f6',
+      delayed:   '#eab308',
+      completed: '#a855f7',
+      rerouting: '#f97316'
+    };
+
+    // ─── SOCKET.IO ───────────────────────────────────────────
+    const socket = io(BACKEND, {
+      transports: ['websocket', 'polling'],
+      reconnectionAttempts: 20,
+      reconnectionDelay: 1000
+    });
+
+    socket.on('connect', () => {
+      document.getElementById('connBadge').classList.add('connected');
+      document.getElementById('connText').textContent = 'Connected';
+      addLog('✅ Connected to backend');
+    });
+
+    socket.on('disconnect', () => {
+      document.getElementById('connBadge').classList.remove('connected');
+      document.getElementById('connText').textContent = 'Disconnected';
+      addLog('❌ Disconnected from backend');
+    });
+
+    // GPS Updates
+    socket.on('gps_update', (data) => {
+      updateDriverMarker(data.driver_id, data.lat, data.lng, data.status);
+      driverData[data.driver_id] = { ...driverData[data.driver_id], ...data };
+    });
+
+    // Route Updates
+    socket.on('route_updated', (data) => {
+      drawDriverRoute(data.driver_id, data.road_path || data.new_route, STATUS_COLORS[driverData[data.driver_id]?.status || 'on_route']);
+      addLog(`🗺️ Driver #${data.driver_id} route ${data.reopt_type === 'INITIAL' ? 'planned' : 're-optimized'} (${data.reopt_type})`);
+      showToast(`Driver #${data.driver_id} route updated`, 'info');
+    });
+
+    // Traffic Updates
+    socket.on('traffic_update', (data) => {
+      addLog(`🚧 Traffic: ${data.edge_id} → ${data.level} (${data.multiplier}×)`);
+      if (data.level !== 'CLEAR') {
+        showToast(`Traffic ${data.level} on ${data.edge_id}`, 'warning');
+      }
+      fetchTrafficEdges();
+    });
+
+    // X-AI Alerts
+    socket.on('xai_alert', (data) => {
+      addLog(`🤖 X-AI [#${data.driver_id}]: ${data.message}`);
+    });
+
+    // Fleet Stats
+    socket.on('fleet_stats', (stats) => {
+      document.getElementById('activeCount').textContent =
+        Object.values(driverData).filter(d => d.status === 'on_route').length;
+    });
+
+    // ─── MAP SETUP ───────────────────────────────────────────
+    const map = L.map('minimap', {
+      center: TRICHY,
+      zoom: 13,
+      zoomControl: false,
+      attributionControl: false
+    });
+
+    L.control.zoom({ position: 'topright' }).addTo(map);
+
+    // Dark tile layer
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      maxZoom: 19,
+      subdomains: 'abcd'
+    }).addTo(map);
+
+    // Warehouse marker
+    L.circleMarker(TRICHY, {
+      radius: 8,
+      fillColor: '#f97316',
+      fillOpacity: 1,
+      color: '#fff',
+      weight: 2
+    }).addTo(map).bindTooltip('🏭 Warehouse', { permanent: false, direction: 'top' });
+
+    // ─── MAP FUNCTIONS ───────────────────────────────────────
+    function updateDriverMarker(id, lat, lng, status) {
+      const color = STATUS_COLORS[status] || '#3b82f6';
+
+      if (driverMarkers[id]) {
+        driverMarkers[id].setLatLng([lat, lng]);
+        driverMarkers[id].setStyle({ fillColor: color, color: color });
+      } else {
+        driverMarkers[id] = L.circleMarker([lat, lng], {
+          radius: 7,
+          fillColor: color,
+          fillOpacity: 0.9,
+          color: color,
+          weight: 2,
+          opacity: 0.5
+        }).addTo(map);
+
+        driverMarkers[id].bindTooltip(`Driver #${id}`, {
+          permanent: false,
+          direction: 'top',
+          offset: [0, -10]
+        });
+      }
+    }
+
+    function drawDriverRoute(id, path, color) {
+      if (!path || path.length < 2) return;
+      if (routeLines[id]) map.removeLayer(routeLines[id]);
+
+      routeLines[id] = L.polyline(path, {
+        color: color || '#3b82f6',
+        weight: 3,
+        opacity: 0.6,
+        dashArray: '8 4'
+      }).addTo(map);
+    }
+
+    // ─── TRAFFIC FETCH ───────────────────────────────────────
+    async function fetchTrafficEdges() {
+      try {
+        const res = await fetch(`${BACKEND}/traffic_edges`);
+        const edges = await res.json();
+
+        // Clear old
+        Object.values(trafficLines).forEach(l => map.removeLayer(l));
+        trafficLines = {};
+
+        let count = 0;
+        if (typeof edges === 'object') {
+          for (const [edgeId, info] of Object.entries(edges)) {
+            if (info && info.level !== 'CLEAR') count++;
+          }
+        }
+        document.getElementById('trafficCount').textContent = count;
+      } catch (e) { /* backend might not be up */ }
+    }
+
+    // ─── DRIVER POLLING ──────────────────────────────────────
+    async function pollDrivers() {
+      try {
+        const res = await fetch(`${BACKEND}/drivers`);
+        const drivers = await res.json();
+
+        let active = 0;
+        drivers.forEach(d => {
+          driverData[d.id] = d;
+          updateDriverMarker(d.id, d.lat, d.lng, d.status);
+
+          const pathToDraw = d.road_path && d.road_path.length > 1 ? d.road_path : d.route;
+          if (pathToDraw && pathToDraw.length > 1) {
+            drawDriverRoute(d.id, pathToDraw, STATUS_COLORS[d.status] || '#3b82f6');
+          }
+
+          if (d.status === 'on_route') active++;
+        });
+
+        document.getElementById('activeCount').textContent = active;
+      } catch (e) { /* backend not up */ }
+    }
+
+    // Poll every 5s
+    setInterval(pollDrivers, 5000);
+    setInterval(fetchTrafficEdges, 8000);
+    setTimeout(pollDrivers, 1000);
+    setTimeout(fetchTrafficEdges, 2000);
+
+    // ─── CONTROL HANDLERS ────────────────────────────────────
+
+    // Traffic level selector
+    document.querySelectorAll('#levelSelector .level-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        document.querySelectorAll('#levelSelector .level-chip').forEach(c => c.classList.remove('selected'));
+        chip.classList.add('selected');
+        selectedLevel = chip.dataset.level;
+      });
+    });
+
+    // Zone selector
+    document.querySelectorAll('#zoneSelector .zone-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        document.querySelectorAll('#zoneSelector .zone-chip').forEach(c => c.classList.remove('selected'));
+        chip.classList.add('selected');
+        selectedZone = chip.dataset.zone;
+      });
+    });
+
+    // Inject Traffic
+    async function injectTraffic(reason) {
+      const driverId = document.getElementById('trafficDriverSelect').value || null;
+      try {
+        const res = await fetch(`${BACKEND}/simulate/traffic`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            level: selectedLevel,
+            reason: reason,
+            driver_id: driverId
+          })
+        });
+        const data = await res.json();
+        addLog(`🚧 Injected ${selectedLevel} ${reason} → ${data.edge || 'random edge'}`);
+        showToast(`${selectedLevel} ${reason} injected!`, 'success');
+        flashButton(event.target.closest('.ctrl-btn'));
+      } catch (e) {
+        showToast('Failed to inject traffic — is backend running?', 'error');
+        addLog('❌ Traffic injection failed');
+      }
+    }
+
+    // Inject Weather
+    async function injectWeather(multiplier) {
+      try {
+        await fetch(`${BACKEND}/simulate/weather`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ multiplier, zone: selectedZone })
+        });
+        addLog(`🌧️ Weather: ${multiplier}× slowdown in ${selectedZone} zone`);
+        showToast(`Weather ${multiplier}× applied to ${selectedZone}`, 'info');
+        flashButton(event.target.closest('.ctrl-btn'));
+      } catch (e) {
+        showToast('Failed to inject weather', 'error');
+      }
+    }
+
+    // Clear Weather
+    async function clearWeather() {
+      try {
+        await fetch(`${BACKEND}/simulate/weather`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ multiplier: 1.0, zone: 'all' })
+        });
+        addLog('☀️ Weather cleared');
+        showToast('Weather cleared!', 'success');
+        flashButton(event.target.closest('.ctrl-btn'));
+      } catch (e) {
+        showToast('Failed to clear weather', 'error');
+      }
+    }
+
+    // New Order
+    async function addNewOrder() {
+      const driverId = document.getElementById('orderDriverSelect').value;
+      const address  = document.getElementById('orderAddress').value.trim();
+      if (!address) {
+        showToast('Enter a delivery address', 'warning');
+        return;
+      }
+
+      try {
+        const res = await fetch(`${BACKEND}/simulate/new_order`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ driver_id: driverId, address })
+        });
+        const data = await res.json();
+        addLog(`📦 New order for #${driverId}: "${address}"`);
+        showToast(`Order added to Driver #${driverId}`, 'success');
+        document.getElementById('orderAddress').value = '';
+      } catch (e) {
+        showToast('Failed to add order', 'error');
+      }
+    }
+
+    // Set Speed
+    function setSpeed(speed) {
+      currentSpeed = speed;
+      document.getElementById('speedSlider').value = speed;
+      document.getElementById('speedValue').textContent = speed + '×';
+      socket.emit('set_speed', { speed });
+      addLog(`⏩ Speed set to ${speed}×`);
+      flashButton(event.target.closest('.ctrl-btn'));
+    }
+
+    // Speed slider
+    document.getElementById('speedSlider').addEventListener('input', function() {
+      currentSpeed = parseInt(this.value);
+      document.getElementById('speedValue').textContent = currentSpeed + '×';
+      socket.emit('set_speed', { speed: currentSpeed });
+    });
+
+    // Pause/Resume
+    function togglePause() {
+      isPaused = !isPaused;
+      socket.emit('pause', { paused: isPaused });
+      document.getElementById('pauseIcon').textContent = isPaused ? '▶️' : '⏸️';
+      document.getElementById('pauseText').textContent = isPaused ? 'Resume' : 'Pause';
+      addLog(isPaused ? '⏸️ Simulation paused' : '▶️ Simulation resumed');
+      showToast(isPaused ? 'Simulation paused' : 'Simulation resumed', 'info');
+    }
+
+    // Reset
+    async function resetSimulation() {
+      try {
+        await fetch(`${BACKEND}/reset`, { method: 'POST' });
+        socket.emit('reset', {});
+        addLog('🔄 Simulation reset');
+        showToast('Simulation reset!', 'success');
+
+        // Clear map layers
+        Object.values(routeLines).forEach(l => map.removeLayer(l));
+        Object.values(trafficLines).forEach(l => map.removeLayer(l));
+        Object.values(driverMarkers).forEach(m => map.removeLayer(m));
+        routeLines = {};
+        trafficLines = {};
+        driverMarkers = {};
+        driverData = {};
+        document.getElementById('activeCount').textContent = '0';
+        document.getElementById('trafficCount').textContent = '0';
+      } catch (e) {
+        showToast('Failed to reset — is backend running?', 'error');
+      }
+    }
+
+    // ─── HELPERS ─────────────────────────────────────────────
+    function addLog(msg) {
+      const log = document.getElementById('eventLog');
+      const now = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
+
+      const item = document.createElement('div');
+      item.className = 'event-item';
+      item.innerHTML = `<span class="time">${now}</span><span class="msg">${msg}</span>`;
+
+      log.prepend(item);
+
+      // Keep max 50 items
+      while (log.children.length > 50) log.removeChild(log.lastChild);
+    }
+
+    function showToast(msg, type = 'info') {
+      const container = document.getElementById('toastContainer');
+      const toast = document.createElement('div');
+      toast.className = `toast ${type}`;
+      toast.textContent = msg;
+      container.appendChild(toast);
+
+      setTimeout(() => {
+        if (toast.parentNode) toast.remove();
+      }, 3500);
+    }
+
+    function flashButton(btn) {
+      if (!btn) return;
+      btn.classList.add('active');
+      setTimeout(() => btn.classList.remove('active'), 500);
+    }
+
+    // ─── INIT ────────────────────────────────────────────────
+    addLog('🎛️ Simulation Panel initialized');
+    addLog('⏳ Connecting to backend…');
+  </script>
+</body>
+</html>
